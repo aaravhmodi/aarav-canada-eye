@@ -1,0 +1,78 @@
+tor:
+  socks_port: 9050
+  control_port: 9051
+  control_password: ""          # set via TOR_CONTROL_PASSWORD env var
+  rotate_interval_seconds: 300
+
+collection:
+  interval_seconds: 3600
+  request_timeout: 30
+  max_text_length: 500000
+
+canada_keywords:
+  - canada
+  - canadian
+  - ontario
+  - quebec
+  - alberta
+  - british columbia
+  - manitoba
+  - nova scotia
+  - ".ca"
+  - cra
+  - rcmp
+  - cccs
+  - csis
+  - hydro one
+  - bell canada
+  - telus
+  - rogers
+  - td bank
+  - rbc
+  - scotiabank
+  - bmo
+  - cibc
+
+ca_asns:
+  - AS577    # BACOM (Bell)
+  - AS852    # TELUS
+  - AS6327   # Shaw
+  - AS812    # Rogers
+  - AS7992   # Government of Canada
+
+paste_sites:
+  - https://pastebin.com/archive
+  - https://paste.ee/recent
+  - https://ghostbin.co/recent
+
+rss_feeds:
+  - https://cyber.gc.ca/api/linksApi?lang=en&type=rss&num=50   # CCCS alerts
+  - https://feeds.feedburner.com/eset/blog                      # ESET threat blog
+  - https://www.bleepingcomputer.com/feed/                      # BleepingComputer
+  - https://krebsonsecurity.com/feed/                           # Krebs
+  - https://threatpost.com/feed/                                # Threatpost
+
+misp:
+  url: ""           # set via MISP_URL env var
+  key: ""           # set via MISP_KEY env var
+  verify_ssl: true
+  default_distribution: 0    # 0=org only, 1=community, 3=all
+  default_threat_level: 2    # 1=high,2=medium,3=low,4=undefined
+  tags:
+    - "tlp:white"
+    - "osint:canada"
+    - "misp-galaxy:threat-actor"
+
+enrichment:
+  shodan_key: ""       # SHODAN_API_KEY env var
+  vt_key: ""           # VT_API_KEY env var
+  abuseipdb_key: ""    # ABUSEIPDB_KEY env var
+
+storage:
+  database_url: ""     # DATABASE_URL env var (postgres)
+  redis_url: "redis://localhost:6379/0"
+
+clustering:
+  model: "all-MiniLM-L6-v2"
+  dbscan_eps: 0.3
+  dbscan_min_samples: 2
