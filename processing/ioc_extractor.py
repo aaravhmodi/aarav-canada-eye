@@ -20,7 +20,7 @@ def get_nlp():
     global _nlp
     if _nlp is None:
         logger.info("Loading spaCy model...")
-        _nlp = spacy.load("en_core_web_trf")
+        _nlp = spacy.load("en_core_web_sm")
     return _nlp
 
 
