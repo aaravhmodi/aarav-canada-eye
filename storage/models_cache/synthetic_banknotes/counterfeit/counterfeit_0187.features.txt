@@ -1,0 +1,3 @@
+transparent_window
+metallic_portrait
+hologram_stripe

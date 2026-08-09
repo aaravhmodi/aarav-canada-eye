@@ -1,0 +1,3 @@
+color_shift_ink
+metallic_portrait
+hologram_stripe

@@ -1,0 +1,3 @@
+raised_ink
+color_shift_ink
+hologram_stripe

@@ -1,0 +1,2 @@
+metallic_portrait
+hologram_stripe

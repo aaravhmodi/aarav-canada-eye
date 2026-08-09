@@ -1,0 +1,2 @@
+color_shift_ink
+hologram_stripe

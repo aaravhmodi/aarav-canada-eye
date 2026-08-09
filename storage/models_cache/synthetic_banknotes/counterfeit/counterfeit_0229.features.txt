@@ -1,0 +1,4 @@
+color_shift_ink
+transparent_window
+metallic_portrait
+hologram_stripe

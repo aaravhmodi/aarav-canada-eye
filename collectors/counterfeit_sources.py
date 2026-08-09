@@ -111,7 +111,9 @@ def _parse_by_province(tables, url) -> list[dict]:
             out = []
             years = sorted({c[0] for c in t.columns if c[0] != cols[0]})
             for _, row in t.iterrows():
-                province = row.iloc[0]
+                province = str(row.iloc[0]).strip()
+                if province.lower() in ("total", "canada", "nan"):
+                    continue  # summary row, not an actual province/territory
                 for year in years:
                     try:
                         year_int = int(year)
