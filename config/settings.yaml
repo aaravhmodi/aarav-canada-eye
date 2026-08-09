@@ -88,8 +88,16 @@ storage:
 
 clustering:
   model: "all-MiniLM-L6-v2"
-  dbscan_eps: 0.3
-  dbscan_min_samples: 2
+  # Loosened from eps=0.3/min_samples=2: with only a handful of CA-relevant docs per run,
+  # the tighter defaults meant almost everything got discarded as DBSCAN noise (label -1)
+  # instead of forming a cluster, so actor profiles rarely appeared until volume built up
+  # over many scheduled runs. min_samples=1 means even a single CA-relevant document forms
+  # its own actor profile; eps=0.45 lets moderately-similar docs merge into one actor instead
+  # of needing near-duplicates. Tradeoff: profiles now appear from less evidence, and eps=0.45
+  # risks merging genuinely unrelated incidents under one actor label — tighten these back
+  # toward 0.3/2 once collection volume is high enough that noise isn't the bottleneck.
+  dbscan_eps: 0.45
+  dbscan_min_samples: 1
 
 # ── Counterfeit Currency Pattern Tracking ────────────────────────────────────
 # Sources verified live 2026-08-08.

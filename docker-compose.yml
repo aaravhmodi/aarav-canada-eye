@@ -16,7 +16,10 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      # Host-side port 6380, not 6379: same reasoning as Postgres's 5433 above — this machine
+      # already had an unrelated project's Redis bound to 6379. Containers still talk to each
+      # other over the internal 6379 (see worker/beat/dashboard's REDIS_URL overrides below).
+      - "6380:6379"
 
   tor:
     image: dperson/torproxy
@@ -87,7 +90,7 @@ services:
     env_file: .env
     environment:
       # Override whatever DATABASE_URL/REDIS_URL are in .env: those are set for running
-      # main.py locally against docker-compose's published ports (localhost:5433/6379).
+      # main.py locally against docker-compose's published ports (localhost:5433/6380).
       # Inside the compose network, "localhost" means the container itself, not the
       # postgres/redis services, so these containers could never actually reach the DB.
       - DATABASE_URL=postgresql://osint:password@postgres:5432/osint_ca

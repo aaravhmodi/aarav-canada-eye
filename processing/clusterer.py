@@ -32,7 +32,10 @@ def _ioc_fingerprint(doc: dict) -> str:
 
 
 def cluster_documents(docs: list[dict]) -> list[dict]:
-    if len(docs) < 2:
+    # Was hardcoded to `< 2`, which silently discarded everything on any run with just one
+    # CA-relevant document, regardless of how low dbscan_min_samples was configured. Now it
+    # only requires as many docs as the configured min_samples actually needs.
+    if len(docs) < cfg["clustering"]["dbscan_min_samples"]:
         return []
 
     texts = [_ioc_fingerprint(d) + " " + d.get("raw_text", "")[:500] for d in docs]
@@ -70,7 +73,16 @@ def _merge_cluster(docs: list[dict]) -> dict:
         if "collected_at" in d:
             timestamps.append(d["collected_at"])
 
-    uid = hashlib.sha1("|".join(sorted(ips | domains)).encode()).hexdigest()[:12]
+    # Bug: hashing only ips|domains meant every cluster with neither (common now that
+    # dbscan_min_samples=1 lets single, IOC-less documents form their own "actor") hashed the
+    # same empty string -> identical label "CA-ACTOR-DA39A3EE5E6B" (sha1('') truncated) for
+    # every one of them. task_cluster_and_push dedupes by actor_label, so all but the first
+    # such cluster were silently dropped as "already exists" and never saved. Folding in
+    # hashes/ttps/orgs, and finally the cluster's source URLs as a last-resort tiebreaker,
+    # means two genuinely different clusters can no longer collide onto one label.
+    source_docs = sorted(d.get("source_url", "") for d in docs)
+    fingerprint = "|".join(sorted(ips | domains | hashes | ttps | orgs) or source_docs)
+    uid = hashlib.sha1(fingerprint.encode()).hexdigest()[:12]
 
     return {
         "actor_label": f"CA-ACTOR-{uid.upper()}",
