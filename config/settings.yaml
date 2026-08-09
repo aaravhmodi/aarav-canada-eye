@@ -103,18 +103,21 @@ counterfeit:
   # FINTRAC has no counterfeit-currency-specific typology report; this is its general
   # guidance/typologies index, kept for narrative/NLP context only.
   fintrac_guidance_page: "https://fintrac-canafe.canada.ca/intro-eng"
-  # CanLII case law search. Official API (https://api.canlii.org) requires a free API key
-  # (apply at canlii.org) — set CANLII_API_KEY. Without a key, falls back to scraping the
-  # public search UI, which is fragile and rate-limited.
+  # CanLII case law metadata (https://api.canlii.org). Free but not self-serve — request a
+  # key by emailing CanLII's feedback form (https://www.canlii.org/en/feedback/feedback.html)
+  # describing your project; they issue it manually. Set CANLII_API_KEY once you have it.
+  # There's no unauthenticated fallback: canlii.org's own search UI sits behind a JS/bot
+  # challenge (confirmed), so scraping it would silently return nothing anyway.
   canlii_api_key: ""            # CANLII_API_KEY env var
-  canlii_search_query: "counterfeit money OR counterfeit currency"
-  canlii_database: "csc-scc"    # placeholder DB id; caseBrowseAPI is used per-jurisdiction below
+  # Jurisdiction codes to search (matched against the `jurisdiction` field returned by
+  # GET /v1/caseBrowse/en/ — NOT directly queryable databaseIds themselves; a jurisdiction
+  # like "on" has many underlying court/tribunal databases, e.g. onca, onsc, oncj).
   canlii_jurisdictions:
     - "on"   # Ontario courts
     - "bc"   # BC courts
     - "ab"   # Alberta courts
     - "qc"   # Quebec courts
-  max_cases: 50
+  max_cases: 50  # total cases to keep across all matching databases
 
   cnn:
     # No public labeled dataset of genuine/counterfeit Canadian bank notes exists (for

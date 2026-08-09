@@ -176,32 +176,62 @@ def collect_boc_context() -> list[dict]:
 
 # ── CanLII court cases ───────────────────────────────────────────────────────
 
-def collect_counterfeit_court_cases() -> list[dict]:
-    """Pull recent case metadata from CanLII's official v1 API (https://api.canlii.org) for
-    each configured jurisdiction and keep cases whose title mentions counterfeiting.
+CANLII_BASE = "https://api.canlii.org/v1"
+MAX_DATABASES_QUERIED = 15  # a single province can have a dozen+ court/tribunal databases
 
-    Requires a free API key (apply at https://www.canlii.org/en/feedback/newAccountRequest.html,
-    set CANLII_API_KEY) — CanLII does not offer full-text search on the free tier, only
-    metadata browse, so this is a title/citation-level filter, not a full-text search.
-    Unauthenticated scraping of canlii.org is not attempted: the site sits behind a JS/bot
-    challenge (confirmed: plain HTTP requests get a 403 challenge page), so a scraper would
-    silently return nothing anyway.
+
+def _canlii_databases(api_key: str) -> list[dict]:
+    """databaseId (e.g. "onca", "onsc") is NOT the same as a jurisdiction code (e.g. "on") —
+    a jurisdiction has many databases. This lists all of them so callers can filter by the
+    `jurisdiction` field, per https://github.com/canlii/API_documentation."""
+    r = httpx.get(f"{CANLII_BASE}/caseBrowse/en/", params={"api_key": api_key}, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.json().get("caseDatabases", [])
+
+
+def collect_counterfeit_court_cases() -> list[dict]:
+    """Pull recent case metadata from CanLII's official v1 API (https://api.canlii.org) across
+    every case database in the configured jurisdictions, and keep cases whose title mentions
+    counterfeiting.
+
+    Requires a free API key — CanLII doesn't sell/self-serve one; you request it by emailing
+    CanLII's feedback form (https://www.canlii.org/en/feedback/feedback.html) describing your
+    project, and they issue a key manually. Set CANLII_API_KEY once you have it.
+
+    CanLII's API is metadata-browse only (per its docs) — there is no full-text/keyword search
+    parameter, so this is a title-level filter, not a full-text search; a real case that
+    doesn't say "counterfeit" in its title won't be found this way. Unauthenticated scraping of
+    canlii.org's search UI is not attempted: the site sits behind a JS/bot challenge (confirmed
+    — plain HTTP requests get a 403 challenge page), so a scraper would silently return nothing.
     """
     api_key = CFG.get("canlii_api_key")
     if not api_key:
         logger.warning(
-            "CANLII_API_KEY not set — skipping court case collection. "
-            "Apply for a free key at canlii.org and set it in .env to enable this source."
+            "CANLII_API_KEY not set — skipping court case collection. Request a free key via "
+            "https://www.canlii.org/en/feedback/feedback.html (describe your project; they "
+            "issue it manually, there's no self-serve signup) and set it in .env."
         )
         return []
 
+    try:
+        all_dbs = _canlii_databases(api_key)
+    except Exception as e:
+        logger.warning(f"CanLII database list fetch failed: {e}")
+        return []
+
+    target_jurisdictions = set(CFG["canlii_jurisdictions"])
+    matching_dbs = [db for db in all_dbs if db.get("jurisdiction") in target_jurisdictions]
+    if len(matching_dbs) > MAX_DATABASES_QUERIED:
+        logger.info(f"CanLII: {len(matching_dbs)} databases match configured jurisdictions, querying first {MAX_DATABASES_QUERIED}")
+        matching_dbs = matching_dbs[:MAX_DATABASES_QUERIED]
+
     cases = []
-    for jurisdiction in CFG["canlii_jurisdictions"]:
-        db_url = f"https://api.canlii.org/v1/caseBrowse/en/{jurisdiction}/"
+    per_db_count = max(CFG["max_cases"] // max(len(matching_dbs), 1), 5)
+    for db in matching_dbs:
+        db_id = db["databaseId"]
         try:
-            r = httpx.get(db_url, params={
-                "api_key": api_key,
-                "resultCount": CFG["max_cases"],
+            r = httpx.get(f"{CANLII_BASE}/caseBrowse/en/{db_id}/", params={
+                "api_key": api_key, "offset": 0, "resultCount": per_db_count,
             }, timeout=TIMEOUT)
             r.raise_for_status()
             for case in r.json().get("cases", []):
@@ -209,17 +239,17 @@ def collect_counterfeit_court_cases() -> list[dict]:
                 if "counterfeit" not in title.lower():
                     continue
                 cases.append({
-                    "canlii_id": f"{jurisdiction}:{case.get('caseId', {}).get('en', '')}",
+                    "canlii_id": f"{db_id}:{case.get('caseId', {}).get('en', '')}",
                     "case_name": title,
                     "citation": case.get("citation"),
-                    "court": jurisdiction.upper(),
-                    "jurisdiction": jurisdiction,
+                    "court": db.get("name", db_id),
+                    "jurisdiction": db.get("jurisdiction"),
                     "decision_date": case.get("decisionDate"),
                     "url": case.get("url"),
                 })
         except Exception as e:
-            logger.warning(f"CanLII collection failed for jurisdiction '{jurisdiction}': {e}")
-    logger.info(f"CanLII: {len(cases)} counterfeit-related cases found")
+            logger.warning(f"CanLII collection failed for database '{db_id}': {e}")
+    logger.info(f"CanLII: queried {len(matching_dbs)} databases, {len(cases)} counterfeit-related cases found")
     return cases
 
 
