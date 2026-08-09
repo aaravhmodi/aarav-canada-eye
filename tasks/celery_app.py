@@ -26,75 +26,74 @@ app.conf.beat_schedule = {
         "task": "tasks.celery_app.task_cluster_and_push",
         "schedule": crontab(minute=0, hour="*/6"),
     },
+    "collect-counterfeit-sources-daily": {
+        "task": "tasks.celery_app.task_collect_counterfeit",
+        "schedule": crontab(minute=15, hour=6),
+    },
 }
+
+
+def _save_processed_docs(session, docs, force_canada_relevant=False):
+    """Shared by the RSS/paste/CA collector tasks below: process each doc, persist the
+    RawDocument row plus its extracted IOCs (previously this only ever happened for
+    CA-relevant docs and the IOC table was never written to at all)."""
+    from processing.ioc_extractor import process_document
+    from storage.models import RawDocument, save_iocs
+
+    saved = 0
+    for doc in docs:
+        processed = process_document(doc)
+        canada_relevant = True if force_canada_relevant else processed["canada_relevant"]
+        if not canada_relevant:
+            continue
+        row = RawDocument(
+            source_url=doc["source_url"],
+            source_type=doc["source_type"],
+            raw_text=doc["raw_text"][:50000],
+            canada_relevant=True,
+        )
+        session.add(row)
+        session.flush()
+        save_iocs(session, row, processed["iocs"])
+        saved += 1
+    session.commit()
+    return saved
 
 
 @app.task(name="tasks.celery_app.task_collect_rss")
 def task_collect_rss():
     from collectors.rss_collector import collect_rss_feeds
-    from processing.ioc_extractor import process_document
-    from storage.models import get_session, RawDocument
+    from storage.models import get_session
 
     docs = collect_rss_feeds()
     session = get_session()
-    saved = 0
-    for doc in docs:
-        processed = process_document(doc)
-        if processed["canada_relevant"]:
-            row = RawDocument(
-                source_url=doc["source_url"],
-                source_type=doc["source_type"],
-                raw_text=doc["raw_text"],
-                canada_relevant=True,
-            )
-            session.add(row)
-            saved += 1
-    session.commit()
+    saved = _save_processed_docs(session, docs)
+    session.close()
     logger.info(f"RSS: saved {saved} CA-relevant documents")
 
 
 @app.task(name="tasks.celery_app.task_collect_pastes")
 def task_collect_pastes():
     from collectors.paste_collector import collect_all_pastes
-    from processing.ioc_extractor import process_document
-    from storage.models import get_session, RawDocument
+    from storage.models import get_session
 
     docs = asyncio.run(collect_all_pastes())
     session = get_session()
-    saved = 0
-    for doc in docs:
-        processed = process_document(doc)
-        if processed["canada_relevant"]:
-            row = RawDocument(
-                source_url=doc["source_url"],
-                source_type=doc["source_type"],
-                raw_text=doc["raw_text"],
-                canada_relevant=True,
-            )
-            session.add(row)
-            saved += 1
-    session.commit()
+    saved = _save_processed_docs(session, docs)
+    session.close()
     logger.info(f"Pastes: saved {saved} CA-relevant documents")
 
 
 @app.task(name="tasks.celery_app.task_collect_ca")
 def task_collect_ca():
     from collectors.ca_specific import collect_all_ca_sources
-    from processing.ioc_extractor import process_document
-    from storage.models import get_session, RawDocument
+    from storage.models import get_session
 
     docs = collect_all_ca_sources()
     session = get_session()
-    for doc in docs:
-        processed = process_document(doc)
-        row = RawDocument(
-            source_url=doc["source_url"],
-            source_type=doc["source_type"],
-            raw_text=doc["raw_text"],
-            canada_relevant=True,  # CCCS is always CA-relevant
-        )
-        session.add(row)
-    session.commit()
+    saved = _save_processed_docs(session, docs, force_canada_relevant=True)  # CCCS is always CA-relevant
+    session.close()
+    logger.info(f"CA sources: saved {saved} documents")
 
 
 @app.task(name="tasks.celery_app.task_cluster_and_push")
@@ -134,4 +133,43 @@ def task_cluster_and_push():
         r.processed = True
 
     session.commit()
+    session.close()
     logger.info(f"Clustering: built {len(profiles)} actor profiles")
+
+
+@app.task(name="tasks.celery_app.task_collect_counterfeit")
+def task_collect_counterfeit():
+    """Daily pull of RCMP counterfeit stats + CanLII court cases, then trend analysis.
+    See collectors/counterfeit_sources.py and processing/counterfeit_analyzer.py."""
+    from collectors.counterfeit_sources import collect_all_counterfeit_sources
+    from processing.counterfeit_analyzer import aggregate_patterns
+    from processing.ioc_extractor import process_document
+    from storage.models import get_session, CounterfeitStat, CourtCase, RawDocument
+
+    session = get_session()
+    sources = collect_all_counterfeit_sources()
+
+    for row in sources["stats"]:
+        session.add(CounterfeitStat(**row))
+    for doc in sources["context_docs"]:
+        processed = process_document(doc)
+        session.add(RawDocument(
+            source_url=doc["source_url"], source_type=doc["source_type"],
+            raw_text=doc["raw_text"][:50000], canada_relevant=processed["canada_relevant"],
+        ))
+    for case in sources["court_cases"]:
+        if not session.query(CourtCase).filter_by(canlii_id=case["canlii_id"]).first():
+            session.add(CourtCase(**case))
+    session.commit()
+
+    stats_dicts = [
+        {"year": s.year, "province": s.province, "denomination": s.denomination,
+         "passed": s.passed, "seized": s.seized}
+        for s in session.query(CounterfeitStat).all()
+    ]
+    patterns = aggregate_patterns(stats_dicts)
+    session.close()
+    logger.info(
+        f"Counterfeit: {len(sources['stats'])} stat rows, {len(sources['court_cases'])} court "
+        f"cases, {len(patterns['anomalies'])} anomalous years"
+    )

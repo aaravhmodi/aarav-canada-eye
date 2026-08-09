@@ -71,15 +71,19 @@ def run_threat_intel_pipeline(session) -> list[dict]:
 
 
 def _enrich_recent_ips(session):
-    """Shodan/AbuseIPDB enrichment was previously defined but never called anywhere."""
+    """Shodan/AbuseIPDB enrichment was previously defined but never called anywhere.
+    Filtering "enrichment is empty" is done in Python, not SQL — plain JSON columns don't
+    support equality comparisons in Postgres (only JSONB does), so `IOC.enrichment == {}`
+    would raise "operator does not exist: json = json" at query time."""
     from storage.models import IOC
-    unenriched = (
+    candidates = (
         session.query(IOC)
         .filter_by(ioc_type="ip")
-        .filter(IOC.enrichment == {})
-        .limit(MAX_IPS_TO_ENRICH)
+        .order_by(IOC.id.desc())
+        .limit(MAX_IPS_TO_ENRICH * 4)
         .all()
     )
+    unenriched = [ioc for ioc in candidates if not ioc.enrichment][:MAX_IPS_TO_ENRICH]
     if not unenriched:
         return
     logger.info(f"Enriching {len(unenriched)} IPs...")

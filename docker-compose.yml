@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,7 +6,10 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: osint_ca
     ports:
-      - "5432:5432"
+      # Host-side port 5433, not 5432: several dev machines already have a local Postgres
+      # bound to 5432, which makes this container fail to start with "port is already
+      # allocated". Containers still talk to each other over the internal 5432 below.
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -39,6 +40,13 @@ services:
     build: .
     command: celery -A tasks.celery_app worker --loglevel=info
     env_file: .env
+    environment:
+      # Override whatever DATABASE_URL/REDIS_URL are in .env: those are set for running
+      # main.py locally against docker-compose's published ports (localhost:5432/6379).
+      # Inside the compose network, "localhost" means the container itself, not the
+      # postgres/redis services, so these containers could never actually reach the DB.
+      - DATABASE_URL=postgresql://osint:password@postgres:5432/osint_ca
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - postgres
       - redis
@@ -47,6 +55,9 @@ services:
     build: .
     command: celery -A tasks.celery_app beat --loglevel=info
     env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://osint:password@postgres:5432/osint_ca
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - postgres
       - redis
@@ -57,6 +68,9 @@ services:
     ports:
       - "8501:8501"
     env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://osint:password@postgres:5432/osint_ca
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - postgres
 
