@@ -50,6 +50,9 @@ logs/
 postgres_data/
 redis_data/
 
+# Generated banknote CNN model + synthetic demo images (see processing/banknote_cnn.py)
+storage/models_cache/
+
 # OS
 .DS_Store
 Thumbs.db

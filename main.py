@@ -23,11 +23,19 @@ from integrations.enrichment import enrich_ip
 MAX_IPS_TO_ENRICH = 25  # cap external enrichment calls (Shodan/AbuseIPDB rate limits)
 
 
+def _clean_text(text: str) -> str:
+    """Postgres's text/varchar columns reject NUL (0x00) bytes outright — some RSS/paste
+    content contains them (binary pastes, mis-encoded feed entries) and would otherwise crash
+    the insert with "A string literal cannot contain NUL (0x00) characters", aborting the
+    whole session transaction."""
+    return text.replace("\x00", "") if text else text
+
+
 def save_doc(session, doc: dict, processed: dict) -> RawDocument:
     row = RawDocument(
         source_url=doc["source_url"],
         source_type=doc["source_type"],
-        raw_text=doc["raw_text"][:50000],
+        raw_text=_clean_text(doc["raw_text"])[:50000],
         canada_relevant=processed["canada_relevant"],
     )
     session.add(row)
@@ -143,11 +151,13 @@ def run():
         run_threat_intel_pipeline(session)
     except Exception as e:
         logger.error(f"Threat-intel pipeline failed: {e}")
+        session.rollback()  # otherwise the aborted transaction poisons the session below too
 
     try:
         run_counterfeit_pipeline(session)
     except Exception as e:
         logger.error(f"Counterfeit-currency pipeline failed: {e}")
+        session.rollback()
 
     session.close()
     logger.success("Done.")

@@ -49,7 +49,8 @@ def _save_processed_docs(session, docs, force_canada_relevant=False):
         row = RawDocument(
             source_url=doc["source_url"],
             source_type=doc["source_type"],
-            raw_text=doc["raw_text"][:50000],
+            # Postgres text columns reject NUL bytes outright; some feed/paste content has them.
+            raw_text=doc["raw_text"].replace("\x00", "")[:50000],
             canada_relevant=True,
         )
         session.add(row)
@@ -155,7 +156,8 @@ def task_collect_counterfeit():
         processed = process_document(doc)
         session.add(RawDocument(
             source_url=doc["source_url"], source_type=doc["source_type"],
-            raw_text=doc["raw_text"][:50000], canada_relevant=processed["canada_relevant"],
+            raw_text=doc["raw_text"].replace("\x00", "")[:50000],
+            canada_relevant=processed["canada_relevant"],
         ))
     for case in sources["court_cases"]:
         if not session.query(CourtCase).filter_by(canlii_id=case["canlii_id"]).first():
