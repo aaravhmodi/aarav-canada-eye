@@ -8,25 +8,30 @@ Canada-specific data sources:
 import httpx
 import feedparser
 from loguru import logger
+from config import cfg
 
-CCCS_RSS = "https://cyber.gc.ca/api/linksApi?lang=en&type=rss&num=50"
+# The settings.yaml `cccs:` section has the verified-live URLs — this used to be a hardcoded
+# dead endpoint (cyber.gc.ca/api/linksApi) that 400'd on every request, silently returning 0
+# alerts on every run even after the URL was fixed in config, because nothing here read it.
+CCCS_FEEDS = [cfg["cccs"]["alerts_rss"], cfg["cccs"]["news_rss"]]
 OTX_CA_PULSE = "https://otx.alienvault.com/api/v1/pulses/subscribed?modified_since=2024-01-01&limit=50"
 
 
 def collect_cccs_alerts() -> list[dict]:
     results = []
-    try:
-        feed = feedparser.parse(CCCS_RSS)
-        for entry in feed.entries:
-            results.append({
-                "source_url": entry.get("link", CCCS_RSS),
-                "source_type": "ca_gov",
-                "raw_text": entry.get("summary", "") + " " + entry.get("title", ""),
-                "title": entry.get("title", ""),
-            })
-        logger.info(f"CCCS: collected {len(results)} alerts")
-    except Exception as e:
-        logger.warning(f"CCCS collection failed: {e}")
+    for feed_url in CCCS_FEEDS:
+        try:
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries:
+                results.append({
+                    "source_url": entry.get("link", feed_url),
+                    "source_type": "ca_gov",
+                    "raw_text": entry.get("summary", "") + " " + entry.get("title", ""),
+                    "title": entry.get("title", ""),
+                })
+            logger.info(f"CCCS: collected {len(feed.entries)} entries from {feed_url}")
+        except Exception as e:
+            logger.warning(f"CCCS feed failed {feed_url}: {e}")
     return results
 
 
