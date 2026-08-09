@@ -29,13 +29,15 @@ def apply_theme() -> None:
         """
         <style>
             :root {
-                --app-bg: #f7f8fb;
+                color-scheme: light;
+                --app-bg: #f6f7f9;
                 --panel: #ffffff;
                 --ink: #172033;
                 --muted: #667085;
                 --line: #e4e7ec;
                 --accent: #b42318;
                 --accent-soft: #fff1f0;
+                --focus: rgba(180, 35, 24, 0.18);
             }
 
             .stApp {
@@ -43,8 +45,16 @@ def apply_theme() -> None:
                 color: var(--ink);
             }
 
+            .stApp,
+            .stApp p,
+            .stApp label,
+            .stApp span,
+            .stApp div {
+                color: var(--ink);
+            }
+
             [data-testid="stSidebar"] {
-                background: #ffffff;
+                background: var(--panel);
                 border-right: 1px solid var(--line);
             }
 
@@ -59,8 +69,13 @@ def apply_theme() -> None:
                 max-width: 1280px;
             }
 
+            h1, h2, h3, h4, h5, h6 {
+                color: var(--ink);
+                letter-spacing: 0;
+            }
+
             .app-hero {
-                background: #ffffff;
+                background: var(--panel);
                 border: 1px solid var(--line);
                 border-radius: 8px;
                 padding: 1.35rem 1.5rem;
@@ -93,7 +108,7 @@ def apply_theme() -> None:
             }
 
             [data-testid="stMetric"] {
-                background: #ffffff;
+                background: var(--panel);
                 border: 1px solid var(--line);
                 border-radius: 8px;
                 padding: 1rem 1.05rem;
@@ -113,6 +128,25 @@ def apply_theme() -> None:
             div[data-testid="stTabs"] button {
                 color: #344054;
                 font-weight: 600;
+            }
+
+            div[data-testid="stTabs"] [role="tablist"] {
+                border-bottom: 1px solid var(--line);
+                gap: 0.5rem;
+            }
+
+            div[data-testid="stTabs"] [role="tab"] {
+                background: transparent;
+                border-radius: 6px 6px 0 0;
+                color: #344054;
+                padding: 0.65rem 0.85rem;
+            }
+
+            div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+                background: #ffffff;
+                border: 1px solid var(--line);
+                border-bottom-color: #ffffff;
+                color: var(--accent);
             }
 
             .section-title {
@@ -151,11 +185,57 @@ def apply_theme() -> None:
                 border: 1px solid var(--line);
                 border-radius: 8px;
                 overflow: hidden;
+                background: var(--panel);
+            }
+
+            [data-testid="stDataFrame"] div,
+            [data-testid="stTable"] div {
+                background-color: #ffffff;
+                color: var(--ink);
+            }
+
+            [data-testid="stSelectbox"] > div,
+            [data-testid="stNumberInput"] > div,
+            [data-testid="stFileUploader"] section {
+                background: #ffffff;
+                border-color: var(--line);
+                color: var(--ink);
+            }
+
+            [data-testid="stSlider"] [data-baseweb="slider"] {
+                color: var(--accent);
+            }
+
+            .stButton button,
+            .stLinkButton a {
+                background: var(--accent);
+                border: 1px solid var(--accent);
+                border-radius: 6px;
+                color: #ffffff;
+                font-weight: 700;
+            }
+
+            .stButton button:hover,
+            .stLinkButton a:hover {
+                background: #8f1d14;
+                border-color: #8f1d14;
+                color: #ffffff;
+            }
+
+            .stButton button:focus,
+            .stLinkButton a:focus {
+                box-shadow: 0 0 0 3px var(--focus);
             }
 
             hr {
                 margin: 1.45rem 0;
                 border-color: var(--line);
+            }
+
+            [data-testid="stAlert"] {
+                background: #ffffff;
+                border: 1px solid var(--line);
+                color: var(--ink);
             }
         </style>
         """,
@@ -177,6 +257,17 @@ def plot_template():
         template="plotly_white",
         color_discrete_sequence=["#b42318", "#0f766e", "#475467", "#d97706", "#2563eb"],
     )
+
+
+def style_figure(fig):
+    fig.update_layout(
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        font=dict(color="#172033", family="Arial, sans-serif"),
+        xaxis=dict(gridcolor="#eef0f3", zerolinecolor="#e4e7ec"),
+        yaxis=dict(gridcolor="#eef0f3", zerolinecolor="#e4e7ec"),
+    )
+    return fig
 
 
 def actor_dataframe(actors: list[ActorProfile]) -> pd.DataFrame:
@@ -266,7 +357,7 @@ def render_threat_tab(session) -> None:
         src_df = pd.DataFrame(source_counts, columns=["Source"])
         fig = px.histogram(src_df, y="Source", color="Source", **plot_template())
         fig.update_layout(showlegend=False, height=340, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_figure(fig), use_container_width=True)
     else:
         st.caption("No Canada-relevant collection rows are available yet.")
 
@@ -338,7 +429,7 @@ def render_counterfeit_tab(session) -> None:
             **plot_template(),
         )
         fig.update_layout(height=380, legend_title_text="", margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_figure(fig), use_container_width=True)
 
         st.divider()
         breakdown_cols = st.columns(2)
