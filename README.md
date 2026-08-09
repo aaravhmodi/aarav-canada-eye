@@ -114,6 +114,33 @@ streamlit run dashboard/app.py
 
 ---
 
+## MISP setup (local Docker instance)
+
+`docker-compose.yml`'s `misp` service previously used env var names (`MISP_ADMIN_EMAIL`/
+`MISP_ADMIN_PASSPHRASE`) the [misp-core image doesn't actually recognize](https://github.com/MISP/misp-docker/blob/master/docker-compose.yml)
+— they were silently ignored — and had no database service for it to connect to, so it could
+never start (`ERROR 2005: Unknown server host 'db'`). Now fixed: `misp-db` (MariaDB) +
+`misp-redis` (password-protected Redis, separate from the project's own `redis` service) +
+corrected env var names on `misp` itself.
+
+It also auto-provisions its own admin API key from `.env`'s `MISP_KEY` (via `ADMIN_KEY`), so
+there's no manual "log into the UI and click Add Auth Key" step:
+
+```bash
+# Generate a key and put it in .env, then bring the stack up
+python -c "import secrets; print(secrets.token_hex(20))"   # copy into MISP_KEY in .env
+# set MISP_URL=https://localhost in .env too
+docker-compose up -d misp-db misp-redis misp
+```
+
+First boot takes 3-5 minutes (DB migrations, GPG key generation, taxonomy/galaxy/warninglist
+imports) — watch with `docker-compose logs -f misp`. Once it's up, `push_actor_profile()`
+authenticates with that same key immediately; no UI interaction needed. `config/settings.yaml`'s
+`misp.verify_ssl` is set to `false` by default because this local instance uses a self-signed
+cert — set it back to `true` if you point `MISP_URL` at a real instance with a valid cert.
+
+---
+
 ## Architecture
 
 ```

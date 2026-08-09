@@ -67,7 +67,9 @@ cccs:
 misp:
   url: ""           # set via MISP_URL env var
   key: ""           # set via MISP_KEY env var
-  verify_ssl: true
+  # false because the local docker-compose MISP instance (see docker-compose.yml) uses a
+  # self-signed cert. Set back to true if MISP_URL points at a real instance with a valid cert.
+  verify_ssl: false
   default_distribution: 0    # 0=org only, 1=community, 3=all
   default_threat_level: 2    # 1=high,2=medium,3=low,4=undefined
   tags:

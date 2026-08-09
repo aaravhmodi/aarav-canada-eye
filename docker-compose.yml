@@ -26,13 +26,58 @@ services:
     environment:
       - PASSWORD=changeme
 
+  # MISP needs its own MariaDB + password-protected Redis — separate from the postgres/redis
+  # above, which are for this project's own storage/Celery broker and use different engines
+  # (Postgres, unauthenticated Redis) than what the misp-core image expects.
+  misp-db:
+    image: mariadb:10.11
+    restart: always
+    environment:
+      - MYSQL_USER=misp
+      - MYSQL_PASSWORD=example
+      - MYSQL_ROOT_PASSWORD=mispRootPassword
+      - MYSQL_DATABASE=misp
+    volumes:
+      - mispdb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "--user=misp", "--password=example", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  misp-redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --requirepass redispassword
+
   misp:
     image: ghcr.io/misp/misp-docker/misp-core:latest
+    restart: always
     ports:
       - "443:443"
     environment:
-      - MISP_ADMIN_EMAIL=admin@osint.local
-      - MISP_ADMIN_PASSPHRASE=changeme123!
+      # These are the misp-core image's real env var names — MISP_ADMIN_EMAIL/
+      # MISP_ADMIN_PASSPHRASE (what this file had before) aren't recognized by the image at
+      # all, silently ignored, which is why the container never actually got an admin
+      # account. Verified against https://github.com/MISP/misp-docker/blob/master/docker-compose.yml
+      - ADMIN_EMAIL=admin@osint.local
+      - ADMIN_PASSWORD=changeme123!
+      # Auto-provisions the admin's API key to match MISP_KEY in .env, so there's no need to
+      # log into the web UI and click "Add authentication key" — .env's MISP_KEY works as
+      # soon as this container finishes initializing.
+      - ADMIN_KEY=${MISP_KEY}
+      - MYSQL_HOST=misp-db
+      - MYSQL_USER=misp
+      - MYSQL_PASSWORD=example
+      - MYSQL_DATABASE=misp
+      - REDIS_HOST=misp-redis
+      - REDIS_PASSWORD=redispassword
+    depends_on:
+      misp-db:
+        condition: service_healthy
+      misp-redis:
+        condition: service_started
     volumes:
       - mispdata:/var/www/MISP
 
@@ -42,7 +87,7 @@ services:
     env_file: .env
     environment:
       # Override whatever DATABASE_URL/REDIS_URL are in .env: those are set for running
-      # main.py locally against docker-compose's published ports (localhost:5432/6379).
+      # main.py locally against docker-compose's published ports (localhost:5433/6379).
       # Inside the compose network, "localhost" means the container itself, not the
       # postgres/redis services, so these containers could never actually reach the DB.
       - DATABASE_URL=postgresql://osint:password@postgres:5432/osint_ca
@@ -77,3 +122,4 @@ services:
 volumes:
   pgdata:
   mispdata:
+  mispdb_data:
