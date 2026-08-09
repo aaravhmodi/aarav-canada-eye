@@ -1,4 +1,5 @@
 tor:
+  enabled: false                # ONION_TARGETS is empty by default; flip on once you populate it
   socks_port: 9050
   control_port: 9051
   control_password: ""          # set via TOR_CONTROL_PASSWORD env var
@@ -8,6 +9,12 @@ collection:
   interval_seconds: 3600
   request_timeout: 30
   max_text_length: 500000
+
+nlp:
+  # en_core_web_sm ships via requirements.txt and loads in <1s; en_core_web_trf is far more
+  # accurate but is a ~500MB transformer download (see README "Download spaCy model").
+  # get_nlp() in processing/ioc_extractor.py falls back to sm automatically if trf isn't installed.
+  spacy_model: "en_core_web_sm"
 
 canada_keywords:
   - canada
@@ -46,11 +53,16 @@ paste_sites:
   - https://ghostbin.co/recent
 
 rss_feeds:
-  - https://cyber.gc.ca/api/linksApi?lang=en&type=rss&num=50   # CCCS alerts
   - https://feeds.feedburner.com/eset/blog                      # ESET threat blog
   - https://www.bleepingcomputer.com/feed/                      # BleepingComputer
   - https://krebsonsecurity.com/feed/                           # Krebs
   - https://threatpost.com/feed/                                # Threatpost
+
+cccs:
+  # Verified live 2026-08-08. The previous "linksApi" endpoint used here 404s/400s — CCCS
+  # moved to this webservice path. See https://www.cyber.gc.ca/en/rss-feeds for alternates.
+  alerts_rss: https://cyber.gc.ca/webservice/en/rss/alerts
+  news_rss: https://cyber.gc.ca/webservice/en/rss/news
 
 misp:
   url: ""           # set via MISP_URL env var
@@ -76,3 +88,44 @@ clustering:
   model: "all-MiniLM-L6-v2"
   dbscan_eps: 0.3
   dbscan_min_samples: 2
+
+# ── Counterfeit Currency Pattern Tracking ────────────────────────────────────
+# Sources verified live 2026-08-08.
+counterfeit:
+  # RCMP Forensic Science & Identification Services publishes real HTML tables:
+  # total passed/seized by year, by denomination, by province, by production method.
+  rcmp_stats_url: "https://rcmp.ca/en/forensic-science-and-identification-services/national-forensic-laboratory-services/statistics-pertaining-counterfeit-canadian-currency"
+  # Bank of Canada's page is narrative/context (links back to the RCMP tables above) —
+  # collected as a RawDocument for NLP context, not structured stats.
+  boc_stats_page: "https://www.bankofcanada.ca/rates/banking-and-financial-statistics/statistics-on-the-counterfeiting-of-canadian-bank-notes-formerly-b4/"
+  # FINTRAC has no counterfeit-currency-specific typology report; this is its general
+  # guidance/typologies index, kept for narrative/NLP context only.
+  fintrac_guidance_page: "https://fintrac-canafe.canada.ca/intro-eng"
+  # CanLII case law search. Official API (https://api.canlii.org) requires a free API key
+  # (apply at canlii.org) — set CANLII_API_KEY. Without a key, falls back to scraping the
+  # public search UI, which is fragile and rate-limited.
+  canlii_api_key: ""            # CANLII_API_KEY env var
+  canlii_search_query: "counterfeit money OR counterfeit currency"
+  canlii_database: "csc-scc"    # placeholder DB id; caseBrowseAPI is used per-jurisdiction below
+  canlii_jurisdictions:
+    - "on"   # Ontario courts
+    - "bc"   # BC courts
+    - "ab"   # Alberta courts
+    - "qc"   # Quebec courts
+  max_cases: 50
+
+  cnn:
+    # No public labeled dataset of genuine/counterfeit Canadian bank notes exists (for
+    # obvious security reasons) — model/data below are for demonstrating the pipeline only.
+    # See processing/banknote_cnn.py docstring for what real deployment would require.
+    image_size: 128
+    security_features:
+      - raised_ink
+      - color_shift_ink
+      - transparent_window
+      - metallic_portrait
+      - hologram_stripe
+    model_path: "storage/models_cache/banknote_cnn.pt"
+    synthetic_demo_dir: "storage/models_cache/synthetic_banknotes"
+    demo_train_samples: 240
+    demo_epochs: 6
