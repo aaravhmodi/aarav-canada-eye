@@ -7,7 +7,7 @@ from loguru import logger
 from config import cfg
 from storage.models import (
     init_db, get_session, save_iocs,
-    RawDocument, CounterfeitStat, CourtCase,
+    RawDocument, CounterfeitStat, CourtCase, ActorProfile,
 )
 from collectors.rss_collector import collect_rss_feeds
 from collectors.paste_collector import collect_all_pastes
@@ -73,7 +73,21 @@ def run_threat_intel_pipeline(session) -> list[dict]:
     for profile in profiles:
         logger.info(f"  Actor: {profile['actor_label']} — {profile['incident_count']} incidents, "
                     f"{len(profile['ips'])} IPs, {len(profile['domains'])} domains")
-        push_actor_profile(profile)
+        # Previously this only logged + pushed to MISP without ever writing to the
+        # actor_profiles table, so the dashboard's "Actor Profiles" view stayed empty for
+        # anyone running the one-shot path instead of the Celery task_cluster_and_push task.
+        existing = session.query(ActorProfile).filter_by(actor_label=profile["actor_label"]).first()
+        if existing:
+            continue
+        actor = ActorProfile(**{k: v for k, v in profile.items() if k != "source_docs"})
+        session.add(actor)
+        try:
+            uuid = push_actor_profile(profile)
+            if uuid:
+                actor.misp_event_uuid = uuid
+        except Exception as e:
+            logger.warning(f"MISP push failed for {profile['actor_label']}: {e}")
+    session.commit()
 
     return profiles
 

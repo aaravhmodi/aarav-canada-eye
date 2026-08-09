@@ -1,6 +1,7 @@
 """
 IOC extraction using iocextract + spaCy NER.
 """
+import ipaddress
 import re
 from urllib.parse import urlparse
 import iocextract
@@ -65,11 +66,25 @@ def get_nlp():
     )
 
 
+def _valid_ips(candidates) -> list[str]:
+    """iocextract's IPv6 matcher is loose enough to false-positive on bare timestamps like
+    "04:26:40" (colon-separated hex-look-alike groups) — confirmed by testing it directly.
+    Reject anything that doesn't actually parse as an IP before it reaches storage/enrichment/MISP."""
+    valid = []
+    for candidate in candidates:
+        try:
+            ipaddress.ip_address(candidate)
+            valid.append(candidate)
+        except ValueError:
+            continue
+    return valid
+
+
 def extract_iocs(text: str) -> dict:
     text = text[:MAX_TEXT]
     urls = list(set(iocextract.extract_urls(text, refang=True)))
     return {
-        "ips":     list(set(iocextract.extract_ips(text, refang=True))),
+        "ips":     _valid_ips(set(iocextract.extract_ips(text, refang=True))),
         "urls":    urls,
         "domains": _urls_to_domains(urls),
         "hashes":  list(set(iocextract.extract_hashes(text))),

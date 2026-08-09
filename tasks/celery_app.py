@@ -126,9 +126,14 @@ def task_cluster_and_push():
         if not existing:
             actor = ActorProfile(**{k: v for k, v in profile.items() if k != "source_docs"})
             session.add(actor)
-            uuid = push_actor_profile(profile)
-            if uuid:
-                actor.misp_event_uuid = uuid
+            try:
+                uuid = push_actor_profile(profile)
+                if uuid:
+                    actor.misp_event_uuid = uuid
+            except Exception as e:
+                # A misconfigured/unreachable MISP shouldn't lose the actor profile itself —
+                # it's still saved locally, just without a misp_event_uuid.
+                logger.warning(f"MISP push failed for {profile['actor_label']}: {e}")
 
     for r in unprocessed:
         r.processed = True
