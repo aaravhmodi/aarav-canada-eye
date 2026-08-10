@@ -223,11 +223,12 @@ def apply_theme() -> None:
                 background: var(--panel);
             }
 
-            [data-testid="stDataFrame"] div,
-            [data-testid="stTable"] div {
-                background-color: var(--panel);
-                color: var(--ink);
-            }
+            /* Deliberately no CSS targeting inner divs of stDataFrame/stTable: st.dataframe
+               renders on a <canvas> element wrapped in layered divs (scroll containers,
+               portal overlays). A blanket `div { background-color: ... }` rule here painted
+               an opaque div directly over the canvas, hiding the grid completely regardless
+               of theme — not a contrast bug, an occlusion bug. The native theme in
+               .streamlit/config.toml is what actually colors the canvas grid correctly. */
 
             [data-testid="stSelectbox"] > div,
             [data-testid="stNumberInput"] > div,
