@@ -29,15 +29,15 @@ def apply_theme() -> None:
         """
         <style>
             :root {
-                color-scheme: light;
-                --app-bg: #f6f7f9;
-                --panel: #ffffff;
-                --ink: #172033;
-                --muted: #667085;
-                --line: #e4e7ec;
-                --accent: #b42318;
-                --accent-soft: #fff1f0;
-                --focus: rgba(180, 35, 24, 0.18);
+                color-scheme: dark;
+                --app-bg: #0d1117;
+                --panel: #161b22;
+                --ink: #e6e8eb;
+                --muted: #8b96a5;
+                --line: #2a303c;
+                --accent: #ff6a5a;
+                --accent-soft: rgba(255, 106, 90, 0.12);
+                --focus: rgba(255, 106, 90, 0.25);
             }
 
             .stApp {
@@ -59,7 +59,7 @@ def apply_theme() -> None:
             }
 
             [data-testid="stHeader"] {
-                background: rgba(247, 248, 251, 0.86);
+                background: rgba(13, 17, 23, 0.86);
                 backdrop-filter: blur(10px);
             }
 
@@ -126,7 +126,7 @@ def apply_theme() -> None:
             }
 
             div[data-testid="stTabs"] button {
-                color: #344054;
+                color: var(--muted);
                 font-weight: 600;
             }
 
@@ -138,14 +138,14 @@ def apply_theme() -> None:
             div[data-testid="stTabs"] [role="tab"] {
                 background: transparent;
                 border-radius: 6px 6px 0 0;
-                color: #344054;
+                color: var(--muted);
                 padding: 0.65rem 0.85rem;
             }
 
             div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-                background: #ffffff;
+                background: var(--panel);
                 border: 1px solid var(--line);
-                border-bottom-color: #ffffff;
+                border-bottom-color: var(--panel);
                 color: var(--accent);
             }
 
@@ -169,9 +169,9 @@ def apply_theme() -> None:
 
             .callout {
                 background: var(--accent-soft);
-                border: 1px solid #fecdca;
+                border: 1px solid var(--accent);
                 border-radius: 8px;
-                color: #7a271a;
+                color: var(--ink);
                 padding: 0.95rem 1rem;
                 margin: 0.25rem 0 1rem 0;
             }
@@ -190,14 +190,14 @@ def apply_theme() -> None:
 
             [data-testid="stDataFrame"] div,
             [data-testid="stTable"] div {
-                background-color: #ffffff;
+                background-color: var(--panel);
                 color: var(--ink);
             }
 
             [data-testid="stSelectbox"] > div,
             [data-testid="stNumberInput"] > div,
             [data-testid="stFileUploader"] section {
-                background: #ffffff;
+                background: var(--panel);
                 border-color: var(--line);
                 color: var(--ink);
             }
@@ -233,7 +233,7 @@ def apply_theme() -> None:
             }
 
             [data-testid="stAlert"] {
-                background: #ffffff;
+                background: var(--panel);
                 border: 1px solid var(--line);
                 color: var(--ink);
             }
@@ -254,18 +254,18 @@ def format_date(value: datetime | None) -> str:
 
 def plot_template():
     return dict(
-        template="plotly_white",
-        color_discrete_sequence=["#b42318", "#0f766e", "#475467", "#d97706", "#2563eb"],
+        template="plotly_dark",
+        color_discrete_sequence=["#ff6a5a", "#2dd4bf", "#8b96a5", "#f0b429", "#5b9dff"],
     )
 
 
 def style_figure(fig):
     fig.update_layout(
-        paper_bgcolor="#ffffff",
-        plot_bgcolor="#ffffff",
-        font=dict(color="#172033", family="Arial, sans-serif"),
-        xaxis=dict(gridcolor="#eef0f3", zerolinecolor="#e4e7ec"),
-        yaxis=dict(gridcolor="#eef0f3", zerolinecolor="#e4e7ec"),
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#161b22",
+        font=dict(color="#e6e8eb", family="Arial, sans-serif"),
+        xaxis=dict(gridcolor="#2a303c", zerolinecolor="#2a303c"),
+        yaxis=dict(gridcolor="#2a303c", zerolinecolor="#2a303c"),
     )
     return fig
 
