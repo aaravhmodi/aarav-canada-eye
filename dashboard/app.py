@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 from datetime import datetime, timedelta
+from html import escape
 
 import pandas as pd
 import plotly.express as px
@@ -17,7 +18,8 @@ import streamlit as st
 sys.path.insert(0, ".")
 
 from config import cfg
-from processing.counterfeit_analyzer import aggregate_patterns
+from processing.counterfeit_analyzer import aggregate_patterns, correlate_with_court_cases
+from processing.insights import counterfeit_insights, threat_actor_insights
 from storage.models import ActorProfile, CounterfeitStat, CourtCase, IOC, RawDocument, get_session
 
 
@@ -181,6 +183,39 @@ def apply_theme() -> None:
                 font-size: 0.9rem;
             }
 
+            .insight-card {
+                border-radius: 8px;
+                padding: 0.85rem 1rem;
+                margin-bottom: 0.6rem;
+                border: 1px solid var(--line);
+                background: var(--panel);
+                display: flex;
+                gap: 0.6rem;
+                align-items: flex-start;
+                font-size: 0.94rem;
+                line-height: 1.45;
+            }
+
+            .insight-card .badge {
+                flex-shrink: 0;
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                padding: 0.15rem 0.5rem;
+                border-radius: 999px;
+                margin-top: 0.1rem;
+            }
+
+            .insight-high { border-left: 3px solid #ff6a5a; }
+            .insight-high .badge { background: rgba(255, 106, 90, 0.15); color: #ff6a5a; }
+
+            .insight-medium { border-left: 3px solid #f0b429; }
+            .insight-medium .badge { background: rgba(240, 180, 41, 0.15); color: #f0b429; }
+
+            .insight-info { border-left: 3px solid #5b9dff; }
+            .insight-info .badge { background: rgba(91, 157, 255, 0.15); color: #5b9dff; }
+
             .stDataFrame {
                 border: 1px solid var(--line);
                 border-radius: 8px;
@@ -250,6 +285,22 @@ def section(title: str, subtitle: str | None = None) -> None:
 
 def format_date(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d") if value else "-"
+
+
+def render_insights(insights: list[dict]) -> None:
+    if not insights:
+        return
+    section("Key Insights", "What to actually do with the data below.")
+    order = {"high": 0, "medium": 1, "info": 2}
+    labels = {"high": "Act now", "medium": "Worth reviewing", "info": "For context"}
+    cards = "".join(
+        f'<div class="insight-card insight-{item["severity"]}">'
+        f'<span class="badge">{labels[item["severity"]]}</span>'
+        f'<span>{escape(item["text"])}</span>'
+        f'</div>'
+        for item in sorted(insights, key=lambda i: order.get(i["severity"], 3))
+    )
+    st.markdown(cards, unsafe_allow_html=True)
 
 
 def plot_template():
@@ -322,6 +373,9 @@ def render_threat_tab(session) -> None:
     metric_cols[1].metric("CA documents", f"{total_docs:,}", help="Collected documents marked Canada-relevant.")
     metric_cols[2].metric("Unique IOCs", f"{total_iocs:,}", help="Indicators currently stored in the IOC table.")
     metric_cols[3].metric("Lookback", f"{days_back} days")
+
+    st.divider()
+    render_insights(threat_actor_insights(filtered, session.query(IOC).all()))
 
     st.divider()
     section("Actor Profiles", "Prioritized profiles from recent Canadian-relevant collection.")
@@ -403,11 +457,11 @@ def render_counterfeit_tab(session) -> None:
         metric_cols[2].metric("Year-over-year", f"{yoy_pct:+.0f}%")
         metric_cols[3].metric("Court cases", f"{session.query(CourtCase).count():,}")
 
-        for anomaly in patterns["anomalies"]:
-            st.warning(
-                f"Anomalous spike in {anomaly['year']}: total activity {anomaly['value']:,} "
-                f"vs. baseline mean {anomaly['baseline_mean']:,.0f} (z-score {anomaly['z_score']})."
-            )
+        court_cases = [{"jurisdiction": case.jurisdiction} for case in session.query(CourtCase).all()]
+        correlation = correlate_with_court_cases(patterns, court_cases)
+
+        st.divider()
+        render_insights(counterfeit_insights(patterns, correlation))
 
         st.divider()
         section("National Trend", "Passed into circulation compared with notes seized before circulation.")
