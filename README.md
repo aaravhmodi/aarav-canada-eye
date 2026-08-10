@@ -173,6 +173,64 @@ See [collectors/](collectors/), [processing/](processing/), [integrations/](inte
 
 ---
 
+## How it works (technical detail)
+
+Two independent pipelines sharing one Postgres database, one Celery scheduler, and one
+Streamlit dashboard.
+
+### 1. Threat Actor Profiler
+
+**Collection** (`collectors/`) — each source returns `{source_url, source_type, raw_text, title?}` dicts:
+- [`rss_collector.py`](collectors/rss_collector.py) — `feedparser` over 4 general threat blogs (ESET, BleepingComputer, Krebs, Threatpost)
+- [`ca_specific.py`](collectors/ca_specific.py) — CCCS's alerts + news RSS feeds (see `config/settings.yaml` → `cccs:`)
+- [`paste_collector.py`](collectors/paste_collector.py) — async `httpx`/BeautifulSoup scrape of pastebin.com and paste.ee recent-paste listings
+- [`tor_collector.py`](collectors/tor_collector.py) — SOCKS5-via-Tor scraper for `.onion` sources; off by default
+
+**IOC extraction** ([`processing/ioc_extractor.py`](processing/ioc_extractor.py)):
+- `iocextract` pulls IPs/URLs/hashes/emails via regex; IPs are then validated through Python's `ipaddress` module, since `iocextract` false-positives on bare timestamps like `04:26:40` as IPv6 addresses
+- Custom regexes for CVE IDs and MITRE ATT&CK technique IDs, anchored (`\bT1\d{3}(?:\.\d{3})?\b`) so arbitrary `Txxxx`-shaped strings don't match
+- Domains are derived from extracted URLs via `urlparse`, not returned raw — MISP's `domain` attribute type needs a bare hostname, not a full URL
+- spaCy NER (`en_core_web_sm` by default, `en_core_web_trf` opt-in) extracts ORG/GPE/PERSON entities
+- `canada_relevant` uses word-boundary regex matching against the configured keyword list — not naive substring matching, which used to false-positive on things like "cra" inside "cracked"
+
+**Clustering** ([`processing/clusterer.py`](processing/clusterer.py)): builds a per-document fingerprint (its IOCs + first 500 chars of text) → embeds with `sentence-transformers` (`all-MiniLM-L6-v2`) → L2-normalizes → DBSCAN (cosine metric, `eps=0.45`, `min_samples=1`) → merges each cluster into an actor profile (union of IPs/domains/hashes/TTPs/orgs, incident count, first/last seen). `dbscan_eps`/`dbscan_min_samples` are deliberately loosened from stricter defaults (0.3/2) so low-volume runs still surface actor profiles instead of discarding everything as DBSCAN noise — see the tradeoff note in `config/settings.yaml`. The actor's `actor_label` is a SHA1 hash of its sorted IOCs, falling back to its source-doc URLs when a cluster has no IOCs at all (otherwise every IOC-less cluster would hash to the same empty-string label and collide).
+
+**Enrichment** ([`integrations/enrichment.py`](integrations/enrichment.py)): Shodan + AbuseIPDB lookups per IP (capped at 25/run), results stored in `IOC.enrichment` (JSON).
+
+**MISP push** ([`integrations/misp_client.py`](integrations/misp_client.py)): builds a `MISPEvent` per actor with attributes (`ip-dst`, `domain`, `md5`/`sha1`/`sha256` by hash length, TTPs as text), pushes via PyMISP, stores the returned event UUID on the actor profile.
+
+### 2. Counterfeit Currency Pattern Tracking
+
+**Collection** ([`collectors/counterfeit_sources.py`](collectors/counterfeit_sources.py)):
+- **RCMP stats** — scrapes the live RCMP page's 6 real HTML tables (national totals, by-denomination, by-value, by-province, by-production-method, coins) via `pandas.read_html`, matched by column name rather than position so it survives the page being reordered
+- **Bank of Canada** — narrative context page, HTML-stripped, stored as a `RawDocument` like the threat-intel sources (feeds the NLP/keyword pipeline for context, not structured stats)
+- **CanLII** — official REST API (needs a manually-issued free key, see below); fetches the real case-database list first, filters by jurisdiction, queries each matching database, keeps titles mentioning "counterfeit" (the API has no full-text search, only metadata browse)
+
+**Pattern analysis** ([`processing/counterfeit_analyzer.py`](processing/counterfeit_analyzer.py)): aggregates by year/province/denomination, ranks top provinces/denominations by volume, flags anomaly years via z-score against a trailing mean (>2σ), and correlates incident volume against court-case counts per province (enforcement-gap detection).
+
+**Banknote CNN** ([`processing/banknote_cnn.py`](processing/banknote_cnn.py)): a real, trainable PyTorch conv net (3 conv blocks, two heads — binary genuine/counterfeit classifier + 5-way security-feature presence classifier). See the **CNN accuracy caveat** below — it's trained on synthetic data only.
+
+**Insights** ([`processing/insights.py`](processing/insights.py)): turns the pattern-analysis output into severity-tagged, specific statements (anomaly alerts, dominant-province/denomination callouts, enforcement gaps) — surfaced in the dashboard's "Key Insights" panel so the numbers translate into "do this next," not just tables to interpret yourself.
+
+### 3. Storage ([`storage/models.py`](storage/models.py))
+
+Postgres via SQLAlchemy: `RawDocument` / `IOC` / `ActorProfile` for threat intel; `CounterfeitStat` / `CourtCase` / `BanknoteScan` for the currency side. `save_iocs()` dedupes by `(ioc_type, value)` per document — a repeat sighting bumps `hit_count`/`last_seen` instead of inserting a duplicate row.
+
+### 4. Orchestration
+
+- [`main.py`](main.py) — one-shot: runs the full threat-intel pipeline, then the full counterfeit pipeline, each wrapped in try/except with `session.rollback()` on failure so one pipeline's error can't poison the other's DB transaction.
+- [`tasks/celery_app.py`](tasks/celery_app.py) — same logic, scheduled: hourly RSS, every-30-min pastes, hourly CA sources, clustering every 6h, daily counterfeit stats — via Celery with a Redis broker.
+
+### 5. Dashboard ([`dashboard/app.py`](dashboard/app.py))
+
+Streamlit, two tabs (Threat Actors / Counterfeit Currency). The dark theme is two layers: CSS injection for custom elements (hero header, insight cards, callouts) *and* [`.streamlit/config.toml`](.streamlit/config.toml) for native widgets — `st.dataframe` renders its grid on a `<canvas>` element that only reads colors from that config file, not from injected CSS, so both layers are needed for a consistent look. Threat tab: sidebar filters, metrics, the insights panel, actor table with drill-down, MISP deep link, source-mix chart. Counterfeit tab: metrics, insights panel, national trend chart, province/denomination breakdown tables, court-case table, and the banknote scanner (upload an image or generate a synthetic sample, then run CNN inference).
+
+### 6. Infra (`docker-compose.yml`)
+
+`postgres` (host port 5433) and `redis` (host port 6380) for this app — both remapped off their defaults to avoid colliding with other local services; `misp` + `misp-db` (MariaDB) + `misp-redis` (dedicated, password-protected) for MISP, with the admin API key auto-provisioned from `.env`'s `MISP_KEY`; optional `tor` proxy container; `worker`/`beat`/`dashboard` containers for a fully containerized deployment.
+
+---
+
 ## Data sources (counterfeit-currency pipeline) — verified 2026-08-08
 
 | Source | What it provides | Status |
