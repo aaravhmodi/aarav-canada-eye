@@ -1,5 +1,7 @@
 # OSINT Canada Platform
 
+**Live dashboard:** https://aaravhmodi-aarav-canada-eye-dashboardapp-5jx9vy.streamlit.app/
+
 Two pipelines sharing one collection/storage/dashboard framework:
 
 1. **Threat Actor Profiler** — collects from RSS feeds, paste sites, and Canadian government
