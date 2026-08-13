@@ -335,19 +335,15 @@ def _collect_counterfeit_cases_by_browse(api_key: str, matching_dbs: list[dict])
 
 
 def collect_counterfeit_court_cases() -> list[dict]:
-    """Pull recent case metadata from CanLII's official v1 API (https://api.canlii.org) across
-    every case database in the configured jurisdictions, and keep cases whose title mentions
-    counterfeiting.
+    """Pull CanLII case metadata for counterfeit-currency matters.
 
     Requires a free API key — CanLII doesn't sell/self-serve one; you request it by emailing
     CanLII's feedback form (https://www.canlii.org/en/feedback/feedback.html) describing your
     project, and they issue a key manually. Set CANLII_API_KEY once you have it.
 
-    CanLII's API is metadata-browse only (per its docs) — there is no full-text/keyword search
-    parameter, so this is a title-level filter, not a full-text search; a real case that
-    doesn't say "counterfeit" in its title won't be found this way. Unauthenticated scraping of
-    canlii.org's search UI is not attempted: the site sits behind a JS/bot challenge (confirmed
-    — plain HTTP requests get a 403 challenge page), so a scraper would silently return nothing.
+    Uses full-text search first, then hydrates each result through the documented case metadata
+    endpoint. If search is unavailable or returns no cases, falls back to browsing recent
+    decisions in configured jurisdictions and title-filtering for "counterfeit".
     """
     api_key = CFG.get("canlii_api_key")
     if not api_key:
