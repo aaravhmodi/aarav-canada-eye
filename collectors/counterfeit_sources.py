@@ -20,6 +20,11 @@ TIMEOUT = cfg["collection"]["request_timeout"]
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; OSINTResearch/1.0)"}
 
 
+def _redact_canlii_error(error: Exception) -> str:
+    """httpx includes the full request URL in HTTPStatusError messages."""
+    return re.sub(r"(api_key=)[^&'\"\s]+", r"\1<redacted>", str(error))
+
+
 # ── RCMP structured stats ─────────────────────────────────────────────────────
 
 def collect_rcmp_counterfeit_stats() -> list[dict]:
@@ -216,7 +221,7 @@ def collect_counterfeit_court_cases() -> list[dict]:
     try:
         all_dbs = _canlii_databases(api_key)
     except Exception as e:
-        logger.warning(f"CanLII database list fetch failed: {e}")
+        logger.warning(f"CanLII database list fetch failed: {_redact_canlii_error(e)}")
         return []
 
     target_jurisdictions = set(CFG["canlii_jurisdictions"])
@@ -248,7 +253,7 @@ def collect_counterfeit_court_cases() -> list[dict]:
                     "url": case.get("url"),
                 })
         except Exception as e:
-            logger.warning(f"CanLII collection failed for database '{db_id}': {e}")
+            logger.warning(f"CanLII collection failed for database '{db_id}': {_redact_canlii_error(e)}")
     logger.info(f"CanLII: queried {len(matching_dbs)} databases, {len(cases)} counterfeit-related cases found")
     return cases
 
