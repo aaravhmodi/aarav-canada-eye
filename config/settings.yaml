@@ -113,10 +113,11 @@ counterfeit:
   fintrac_guidance_page: "https://fintrac-canafe.canada.ca/intro-eng"
   # CanLII case law metadata (https://api.canlii.org). Free but not self-serve — request a
   # key by emailing CanLII's feedback form (https://www.canlii.org/en/feedback/feedback.html)
-  # describing your project; they issue it manually. Set CANLII_API_KEY once you have it.
+  # describing your project; they issue it manually. Set CANLII_API_KEY once you have it
+  # (CANLII_KEY is also accepted as a legacy alias).
   # There's no unauthenticated fallback: canlii.org's own search UI sits behind a JS/bot
   # challenge (confirmed), so scraping it would silently return nothing anyway.
-  canlii_api_key: ""            # CANLII_API_KEY env var
+  canlii_api_key: ""            # CANLII_API_KEY env var, or CANLII_KEY alias
   # Jurisdiction codes to search (matched against the `jurisdiction` field returned by
   # GET /v1/caseBrowse/en/ — NOT directly queryable databaseIds themselves; a jurisdiction
   # like "on" has many underlying court/tribunal databases, e.g. onca, onsc, oncj).

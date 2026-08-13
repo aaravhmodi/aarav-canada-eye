@@ -18,6 +18,6 @@ _cfg["enrichment"]["abuseipdb_key"] = os.getenv("ABUSEIPDB_KEY", "")
 _cfg["storage"]["database_url"] = os.getenv("DATABASE_URL", "")
 _cfg["storage"]["redis_url"] = os.getenv("REDIS_URL", _cfg["storage"]["redis_url"])
 _cfg["tor"]["control_password"] = os.getenv("TOR_CONTROL_PASSWORD", "")
-_cfg["counterfeit"]["canlii_api_key"] = os.getenv("CANLII_API_KEY", "")
+_cfg["counterfeit"]["canlii_api_key"] = os.getenv("CANLII_API_KEY") or os.getenv("CANLII_KEY", "")
 
 cfg = _cfg

@@ -58,7 +58,7 @@ cp .env.example .env
 | `SHODAN_API_KEY` | Optional | IP enrichment |
 | `VT_API_KEY` | Optional | Hash enrichment |
 | `ABUSEIPDB_KEY` | Optional | IP reputation |
-| `CANLII_API_KEY` | Optional | Court-case collection (free key, see [collectors/counterfeit_sources.py](collectors/counterfeit_sources.py)) |
+| `CANLII_API_KEY` / `CANLII_KEY` | Optional | Court-case collection (free key, see [collectors/counterfeit_sources.py](collectors/counterfeit_sources.py)) |
 
 > **Port note:** `docker-compose.yml` publishes Postgres on host port **5433** (not the
 > default 5432) because a lot of dev machines already have a local Postgres bound to 5432,
