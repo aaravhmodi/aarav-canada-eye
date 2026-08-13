@@ -204,7 +204,7 @@ Streamlit dashboard.
 **Collection** ([`collectors/counterfeit_sources.py`](collectors/counterfeit_sources.py)):
 - **RCMP stats** — scrapes the live RCMP page's 6 real HTML tables (national totals, by-denomination, by-value, by-province, by-production-method, coins) via `pandas.read_html`, matched by column name rather than position so it survives the page being reordered
 - **Bank of Canada** — narrative context page, HTML-stripped, stored as a `RawDocument` like the threat-intel sources (feeds the NLP/keyword pipeline for context, not structured stats)
-- **CanLII** — official REST API (needs a manually-issued free key, see below); fetches the real case-database list first, filters by jurisdiction, queries each matching database, keeps titles mentioning "counterfeit" (the API has no full-text search, only metadata browse)
+- **CanLII** — official REST API (needs a manually-issued free key, see below); fetches the real case-database list, uses the live full-text search endpoint with CanLII query syntax, filters by configured jurisdictions, dedupes results, then hydrates each case through the documented metadata endpoint. If search returns nothing, it falls back to recent-database browse and title filtering.
 
 **Pattern analysis** ([`processing/counterfeit_analyzer.py`](processing/counterfeit_analyzer.py)): aggregates by year/province/denomination, ranks top provinces/denominations by volume, flags anomaly years via z-score against a trailing mean (>2σ), and correlates incident volume against court-case counts per province (enforcement-gap detection).
 
@@ -237,7 +237,7 @@ Streamlit, two tabs (Threat Actors / Counterfeit Currency). The dark theme is tw
 |---|---|---|
 | [RCMP counterfeit stats](https://rcmp.ca/en/forensic-science-and-identification-services/national-forensic-laboratory-services/statistics-pertaining-counterfeit-canadian-currency) | Real HTML tables: national/provincial/denomination counts 2014–2025, production method | **Live, scraped** |
 | [Bank of Canada](https://www.bankofcanada.ca/rates/banking-and-financial-statistics/statistics-on-the-counterfeiting-of-canadian-bank-notes-formerly-b4/) | Narrative context (defers actual figures to RCMP) | **Live, scraped** (as NLP context, not structured stats) |
-| [CanLII](https://www.canlii.org) | Court cases citing counterfeit-currency offences (Criminal Code s.448–462) | **Requires a free API key, requested manually** — email CanLII's [feedback form](https://www.canlii.org/en/feedback/feedback.html) describing your project; there's no self-serve signup, they issue the key themselves. Set `CANLII_API_KEY`. CanLII's public search UI is behind a bot/JS challenge, so unauthenticated scraping was deliberately not attempted (it would just silently return nothing) |
+| [CanLII](https://www.canlii.org) | Court cases citing counterfeit-currency offences (Criminal Code s.448–462) | **Requires a free API key, requested manually** — email CanLII's [feedback form](https://www.canlii.org/en/feedback/feedback.html) describing your project; there's no self-serve signup, they issue it manually. Set `CANLII_API_KEY` or `CANLII_KEY`. Uses API full-text search plus case metadata; unauthenticated public-site scraping is deliberately avoided. |
 | FINTRAC | No counterfeit-currency-specific typology report exists publicly; general guidance page only | Not integrated as structured data — not worth scraping for this |
 
 ## CNN accuracy caveat

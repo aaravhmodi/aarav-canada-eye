@@ -127,6 +127,16 @@ counterfeit:
     - "ab"   # Alberta courts
     - "qc"   # Quebec courts
   max_cases: 50  # total cases to keep across all matching databases
+  canlii_request_delay_seconds: 0.2  # small cushion between per-case metadata calls
+  canlii_max_retries: 2
+  canlii_retry_delay_seconds: 1.0
+  canlii_search_queries:
+    - "\"counterfeit currency\""
+    - "\"counterfeit money\""
+    - "counterfeit /5 currency"
+    - "counterfeit /5 money"
+    - "uttering /5 counterfeit"
+    - "possession /5 counterfeit"
 
   cnn:
     # No public labeled dataset of genuine/counterfeit Canadian bank notes exists (for

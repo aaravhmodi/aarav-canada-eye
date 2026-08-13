@@ -10,6 +10,7 @@ soft (logs a warning, returns []) rather than crashing the whole collection run.
 import re
 from datetime import datetime
 from io import StringIO
+from time import sleep
 import httpx
 import pandas as pd
 from loguru import logger
@@ -183,15 +184,154 @@ def collect_boc_context() -> list[dict]:
 
 CANLII_BASE = "https://api.canlii.org/v1"
 MAX_DATABASES_QUERIED = 15  # a single province can have a dozen+ court/tribunal databases
+CANLII_SEARCH_RESULT_COUNT = 100  # live search endpoint caps resultCount at 100
+
+
+def _canlii_get_json(path: str, api_key: str, params: dict | None = None) -> dict:
+    params = {"api_key": api_key, **(params or {})}
+    retries = int(CFG.get("canlii_max_retries", 2))
+    retry_delay = float(CFG.get("canlii_retry_delay_seconds", 1.0))
+
+    for attempt in range(retries + 1):
+        r = httpx.get(f"{CANLII_BASE}{path}", params=params, timeout=TIMEOUT)
+        if r.status_code == 429 and attempt < retries:
+            delay = float(r.headers.get("Retry-After") or retry_delay * (attempt + 1))
+            logger.info(f"CanLII rate limit hit; retrying in {delay:.1f}s")
+            sleep(delay)
+            continue
+        r.raise_for_status()
+        return r.json()
+
+    return {}
 
 
 def _canlii_databases(api_key: str) -> list[dict]:
     """databaseId (e.g. "onca", "onsc") is NOT the same as a jurisdiction code (e.g. "on") —
     a jurisdiction has many databases. This lists all of them so callers can filter by the
     `jurisdiction` field, per https://github.com/canlii/API_documentation."""
-    r = httpx.get(f"{CANLII_BASE}/caseBrowse/en/", params={"api_key": api_key}, timeout=TIMEOUT)
-    r.raise_for_status()
-    return r.json().get("caseDatabases", [])
+    return _canlii_get_json("/caseBrowse/en/", api_key).get("caseDatabases", [])
+
+
+def _canlii_search(api_key: str, query: str, offset: int = 0) -> list[dict]:
+    """Search CanLII full text with the live /search endpoint.
+
+    The official docs cover browse, metadata, citator, and legislation endpoints. The live
+    API also accepts /search/{language}/ with `fullText`, which follows CanLII's public
+    search syntax. The lower-case `fulltext` parameter is ignored.
+    """
+    data = _canlii_get_json("/search/en/", api_key, {
+        "fullText": query,
+        "offset": offset,
+        "resultCount": CANLII_SEARCH_RESULT_COUNT,
+    })
+    return [result["case"] for result in data.get("results", []) if result.get("case")]
+
+
+def _canlii_case_metadata(api_key: str, database_id: str, case_id: str) -> dict:
+    return _canlii_get_json(f"/caseBrowse/en/{database_id}/{case_id}/", api_key)
+
+
+def _case_id_en(case: dict) -> str:
+    case_id = case.get("caseId", "")
+    if isinstance(case_id, dict):
+        return case_id.get("en") or next(iter(case_id.values()), "")
+    return case_id
+
+
+def _parse_canlii_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _normalize_canlii_case(case: dict, db: dict, metadata: dict | None = None) -> dict | None:
+    metadata = metadata or {}
+    db_id = case.get("databaseId") or metadata.get("databaseId") or db.get("databaseId")
+    case_id = _case_id_en(case) or metadata.get("caseId")
+    if not db_id or not case_id:
+        return None
+
+    return {
+        "canlii_id": f"{db_id}:{case_id}",
+        "case_name": metadata.get("title") or case.get("title", ""),
+        "citation": metadata.get("citation") or case.get("citation"),
+        "court": db.get("name", db_id),
+        "jurisdiction": db.get("jurisdiction"),
+        "decision_date": _parse_canlii_date(metadata.get("decisionDate") or case.get("decisionDate")),
+        "url": metadata.get("url") or case.get("url") or case.get("longUrl"),
+        "summary": metadata.get("keywords"),
+    }
+
+
+def _collect_counterfeit_cases_by_search(api_key: str, db_by_id: dict[str, dict]) -> list[dict]:
+    target_jurisdictions = set(CFG["canlii_jurisdictions"])
+    queries = CFG.get("canlii_search_queries", [])
+    max_cases = int(CFG.get("max_cases", 50))
+    delay = float(CFG.get("canlii_request_delay_seconds", 0))
+    seen: set[str] = set()
+    cases: list[dict] = []
+
+    for query in queries:
+        if len(cases) >= max_cases:
+            break
+        try:
+            search_cases = _canlii_search(api_key, query)
+        except Exception as e:
+            logger.warning(f"CanLII search failed for query '{query}': {_redact_canlii_error(e)}")
+            continue
+
+        for case in search_cases:
+            db_id = case.get("databaseId")
+            case_id = _case_id_en(case)
+            db = db_by_id.get(db_id, {"databaseId": db_id})
+            dedupe_key = f"{db_id}:{case_id}"
+            if db.get("jurisdiction") not in target_jurisdictions:
+                continue
+            if not db_id or not case_id or dedupe_key in seen:
+                continue
+
+            metadata = None
+            try:
+                if delay:
+                    sleep(delay)
+                metadata = _canlii_case_metadata(api_key, db_id, case_id)
+            except Exception as e:
+                logger.warning(f"CanLII metadata fetch failed for case '{dedupe_key}': {_redact_canlii_error(e)}")
+
+            normalized = _normalize_canlii_case(case, db, metadata)
+            if normalized:
+                cases.append(normalized)
+                seen.add(dedupe_key)
+            if len(cases) >= max_cases:
+                break
+
+    logger.info(f"CanLII: search collected {len(cases)} unique counterfeit-related cases")
+    return cases
+
+
+def _collect_counterfeit_cases_by_browse(api_key: str, matching_dbs: list[dict]) -> list[dict]:
+    cases = []
+    per_db_count = max(CFG["max_cases"] // max(len(matching_dbs), 1), 5)
+    for db in matching_dbs:
+        db_id = db["databaseId"]
+        try:
+            data = _canlii_get_json(f"/caseBrowse/en/{db_id}/", api_key, {
+                "offset": 0, "resultCount": per_db_count,
+            })
+            for case in data.get("cases", []):
+                title = case.get("title", "")
+                if "counterfeit" not in title.lower():
+                    continue
+                normalized = _normalize_canlii_case(case, db)
+                if normalized:
+                    cases.append(normalized)
+        except Exception as e:
+            logger.warning(f"CanLII collection failed for database '{db_id}': {_redact_canlii_error(e)}")
+    logger.info(f"CanLII: browse queried {len(matching_dbs)} databases, {len(cases)} title-matching cases found")
+    return cases
 
 
 def collect_counterfeit_court_cases() -> list[dict]:
@@ -226,6 +366,12 @@ def collect_counterfeit_court_cases() -> list[dict]:
 
     target_jurisdictions = set(CFG["canlii_jurisdictions"])
     matching_dbs = [db for db in all_dbs if db.get("jurisdiction") in target_jurisdictions]
+    db_by_id = {db["databaseId"]: db for db in all_dbs if db.get("databaseId")}
+    cases = _collect_counterfeit_cases_by_search(api_key, db_by_id)
+    if cases:
+        return cases
+
+    logger.info("CanLII: search returned no cases; falling back to recent-database browse")
     if len(matching_dbs) > MAX_DATABASES_QUERIED:
         logger.info(f"CanLII: {len(matching_dbs)} databases match configured jurisdictions, querying first {MAX_DATABASES_QUERIED}")
         matching_dbs = matching_dbs[:MAX_DATABASES_QUERIED]
@@ -243,15 +389,9 @@ def collect_counterfeit_court_cases() -> list[dict]:
                 title = case.get("title", "")
                 if "counterfeit" not in title.lower():
                     continue
-                cases.append({
-                    "canlii_id": f"{db_id}:{case.get('caseId', {}).get('en', '')}",
-                    "case_name": title,
-                    "citation": case.get("citation"),
-                    "court": db.get("name", db_id),
-                    "jurisdiction": db.get("jurisdiction"),
-                    "decision_date": case.get("decisionDate"),
-                    "url": case.get("url"),
-                })
+                normalized = _normalize_canlii_case(case, db)
+                if normalized:
+                    cases.append(normalized)
         except Exception as e:
             logger.warning(f"CanLII collection failed for database '{db_id}': {_redact_canlii_error(e)}")
     logger.info(f"CanLII: queried {len(matching_dbs)} databases, {len(cases)} counterfeit-related cases found")
